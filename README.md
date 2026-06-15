@@ -1,102 +1,91 @@
-# STM32F103 平衡车项目
+# 非接触式姿态控制盘系统
 
-基于 STM32F103 的平衡车/自平衡机器人项目，使用 Keil MDK 开发。
-
-## 项目结构
-
-```
-MDK-ARM/
-├── F103.uvprojx          # Keil 工程文件
-├── startup_stm32f103xb.s # 启动文件
-├── F103/                 # 编译输出
-├── RTE/                  # Keil 运行时环境
-└── scripts/              # 辅助脚本
-```
-
-## 模块说明
-
-| 模块 | 文件 | 功能 |
-|------|------|------|
-| 主程序 | `main.c` | 程序入口与主循环 |
-| 应用逻辑 | `app.c / app.h` | 应用层控制逻辑 |
-| PID 控制 | `PID.c / PID.h` | PID 算法实现 |
-| MPU6050 | `mpu6050.c / mpu6050.h` | 六轴传感器驱动（加速度+陀螺仪） |
-| OLED 显示 | `oled.c / oled.h` | OLED 屏幕驱动（I2C） |
-| 显示模块 | `display.c / display.h` | 界面显示逻辑 |
-| I2C 通信 | `i2c.c / i2c.h` | 软件 I2C 驱动 |
-| GPIO | `gpio.c / gpio.h` | GPIO 初始化与控制 |
-| 定时器 | `tim.c / tim.h` | 定时器配置（PWM 输出） |
-| 串口通信 | `usart.c / usart.h` | UART 调试输出 |
-| 红外遥控 | `IR.c / IR.h` | 红外接收与解码 |
-| 中断处理 | `stm32f1xx_it.c` | 中断向量处理 |
+基于 STM32F103C8 的手势控制自平衡平台，通过红外传感器检测手部位置，驱动双轴舵机跟随手势倾斜，同时保持平台上小球的稳定。
 
 ## 硬件平台
 
-- **MCU**: STM32F103 (Cortex-M3, 72MHz)
-- **传感器**: MPU6050 六轴 IMU
-- **显示**: OLED (I2C)
-- **电机驱动**: 待确认
-- **遥控**: 红外遥控器
-- **开发工具**: Keil MDK-ARM
+| 组件 | 型号/接口 | 说明 |
+|------|-----------|------|
+| 主控 | STM32F103C8T6 | MINI-F103C8T6 核心板，72MHz |
+| 姿态传感器 | MPU6050 | I2C2，6轴加速度计+陀螺仪 |
+| 显示屏 | 0.96寸 OLED | I2C1，显示角度和状态 |
+| 红外传感器 | 5路 IR | PA1-PA5，中断触发，检测手部位置 |
+| 舵机 | 2路 SG90 | TIM1 CH1(俯仰) + CH2(横滚) |
+| 调试串口 | UART1 | 115200bps，PID 参数在线调参 |
 
-## 构建
+## 软件架构
 
-1. 打开 `F103.uvprojx`
-2. 选择 Build → Rebuild All
-3. 输出文件在 `F103/F103.hex`
-
-## 开发环境
-
-- Keil MDK-ARM
-- STM32CubeMX 生成的 HAL 库
-- CMSIS 库
-
-## 使用说明（快速上手）
-
-- 进入项目目录：
-
-```bash
-cd "d:\\diansai\\STM32 B\\STM32\\MDK-ARM"
+```
+├── Src/
+│   ├── main.c              # 入口，时钟和外设初始化
+│   ├── PID.c/h             # PID 控制器 + 卡尔曼滤波
+│   ├── mpu6050.c/h         # MPU6050 I2C 驱动
+│   ├── gpio.c              # GPIO 初始化
+│   ├── i2c.c               # I2C 初始化
+│   ├── tim.c               # 定时器初始化
+│   └── stm32f1xx_it.c      # 中断服务函数
+├── Board/
+│   ├── app.c               # 应用逻辑，主控制循环
+│   ├── IR.c/h              # 红外传感器驱动（中断+去抖）
+│   ├── display.c/h         # OLED 显示驱动
+│   └── OLED/               # OLED 底层驱动
+├── Drivers/                 # STM32 HAL 库
+└── MDK-ARM/                 # Keil 工程文件
 ```
 
-- 常用开发流程：编辑 → 编译（Keil）→ 调试 → 提交 → 推送。
+## 核心功能
 
-```bash
-git add -A
-git commit -m "描述本次修改"
-git push
+### 1. 姿态估计
+- 卡尔曼滤波融合加速度计和陀螺仪数据
+- 实时输出俯仰角（Pitch）和横滚角（Roll）
+
+### 2. PID 控制
+- 俯仰轴：保持水平（目标 0°）
+- 横滚轴：跟随红外传感器手部位置（-8° ~ +8°）
+- 支持抗积分饱和、微分低坡滤波、死区设置
+
+### 3. 手势跟踪
+- 5 路红外传感器中断触发，带硬件去抖
+- 检测手在左/中/右位置，映射为横滚目标角度
+
+### 4. 自动校准
+- 上电自动水平校准，直到倾斜角 < 0.5°
+
+### 5. 串口调参
+- 发送 `P:kp,ki,kd,deadband` 实时修改 PID 参数
+
+## 编译与烧录
+
+### 环境要求
+- Keil MDK-ARM v5
+- ST-Link V2 调试器
+
+### 编译
+1. 打开 `MDK-ARM/F103.uvprojx`
+2. 选择 **Target: F103**
+3. 点击 **Build** (F7)
+
+### 烧录
+1. 连接 ST-Link 到开发板 SWD 接口
+2. 在 Keil 中点击 **Download** (F8)
+3. 或使用 STM32_Programmer CLI：
+   ```bash
+   STM32_Programmer_CLI -c port=SWD -w build/F103/F103.hex -v -rst
+   ```
+
+## 调试
+
+串口助手连接 UART1（115200 8N1），可实时查看：
+- 俯仰角 / 横滚角
+- 红外传感器目标值
+- 小球稳定状态
+
+在线调参命令格式：
 ```
-
-> 本地 `main` 分支已推送为远程分支 `stm32-project`（位于 `https://github.com/cmj156/blog.git`），因此 `git push` 会将更新推到该远程分支。
-
-## 推送与远程说明
-
-- 如果你希望把项目迁移到新的独立仓库（推荐），请在 GitHub 新建仓库后执行：
-
-```bash
-git remote set-url origin https://github.com/<你的用户名>/<新仓库名>.git
-git push -u origin main
+P:2.5,0.01,0.8,0.5
 ```
+分别对应 Kp、Ki、Kd、死区。
 
-- 如果使用 SSH 推送，建议先把私钥添加到 `ssh-agent`，避免每次输入 passphrase：
+## License
 
-```powershell
-Start-Service ssh-agent
-ssh-add C:\\Users\\CMJ\\.ssh\\id_ed25519
-```
-
-## scripts 目录说明
-
-- `scripts/new_post.ps1`：一个用于 Hugo 博客的辅助脚本（如果你同时维护博客，可以在博客仓库中使用）。
-
-## 常见问题
-
-- 推送被拒绝提示 `Updates were rejected because the remote contains work that you do not have locally`：表示远程已有不同历史。为避免覆盖远程博客，本项目已将代码推到远程分支 `stm32-project`。
-
-- 如需强制覆盖远程 `main`（风险大，不推荐），可执行：
-
-```bash
-git push -u origin main --force
-```
-
-如需我帮你创建独立仓库并迁移当前项目，或将 `README.md` 做进一步定制，请告诉我你要的内容（例如：增加构建步骤、硬件接线图、API 说明等）。
+MIT
